@@ -582,6 +582,29 @@ function NewInvoiceForm() {
           setStepErrors((prev) => ({ ...prev, [s]: "Deadline must be a positive number of days" }));
           return false;
         }
+        if (cosigners.length > 0) {
+          const invalid = cosigners.filter(
+            (addr) => !addr.startsWith("G") || addr.length < 50
+          );
+          if (invalid.length > 0) {
+            setStepErrors((prev) => ({
+              ...prev,
+              [s]: "Each co-signer needs a valid G... address",
+            }));
+            return false;
+          }
+          if (
+            !Number.isInteger(cosignerThreshold) ||
+            cosignerThreshold < 1 ||
+            cosignerThreshold > cosigners.length
+          ) {
+            setStepErrors((prev) => ({
+              ...prev,
+              [s]: `Approval threshold must be between 1 and ${cosigners.length}`,
+            }));
+            return false;
+          }
+        }
         setStepErrors((prev) => ({ ...prev, [s]: null }));
         return true;
       }
@@ -1109,6 +1132,25 @@ function NewInvoiceForm() {
           setCosignerThreshold(thresh);
         }}
       />
+
+      {cosigners.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg bg-gray-800 border border-gray-700 px-4 py-3">
+          <p className="text-sm text-gray-300">
+            {cosignerThreshold} of {cosigners.length} co-signer approval
+            {cosigners.length === 1 ? "" : "s"} required before release.
+          </p>
+          {cosigners.some((addr) => !addr.startsWith("G") || addr.length < 50) && (
+            <p role="alert" className="text-xs text-red-400">
+              Each co-signer needs a valid G... address.
+            </p>
+          )}
+          {(cosignerThreshold < 1 || cosignerThreshold > cosigners.length) && (
+            <p role="alert" className="text-xs text-red-400">
+              Approval threshold must be between 1 and {cosigners.length}.
+            </p>
+          )}
+        </div>
+      )}
     </div>
     );
   };
