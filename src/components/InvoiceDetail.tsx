@@ -29,6 +29,15 @@ export interface InvoiceImpactMetric {
   icon?: string;
 }
 
+export interface CurrencyRateSnapshot {
+  /** ISO 4217 currency code the snapshot was recorded for. */
+  currency: string;
+  /** XLM per one major unit of `currency`. */
+  rate: number;
+  /** ISO timestamp of when the rate was captured. */
+  capturedAt: string;
+}
+
 export interface InvoiceDetailProps {
   /** Invoice identifier shown in the header. */
   invoiceId: string;
@@ -42,9 +51,40 @@ export interface InvoiceDetailProps {
   loading?: boolean;
   /** Optional error message to surface instead of the story. */
   error?: string | null;
+  /** Live XLM rate for the invoice currency (XLM per major unit). */
+  xlmRate?: number | null;
+  /** Optional locked rate applied for the payment window. */
+  lockedRate?: number | null;
+  /** Optional ISO timestamp for when the locked rate expires. */
+  rateLockedUntil?: string | null;
+  /** Optional loading flag while the live rate is being fetched. */
+  rateLoading?: boolean;
+  /** Optional error message for the rate lookup. */
+  rateError?: string | null;
+  /** Optional rate snapshots recorded for the invoice currency. */
+  currencyHistory?: CurrencyRateSnapshot[];
 }
 
 const DEFAULT_CURRENCY = 'USD';
+const XLM_CURRENCY = 'XLM';
+const RATE_DECIMALS = 6;
+
+function formatXlmAmount(amount: number, rate: number): string {
+  const converted = (Math.max(0, amount) / 100) * rate;
+  return `${converted.toFixed(RATE_DECIMALS)} ${XLM_CURRENCY}`;
+}
+
+function formatRate(rate: number): string {
+  return `1 ${XLM_CURRENCY} = ${(1 / rate).toFixed(RATE_DECIMALS)}`;
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
 
 function formatCurrency(amount: number, currency: string): string {
   try {
@@ -107,6 +147,12 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   story,
   loading = false,
   error = null,
+  xlmRate = null,
+  lockedRate = null,
+  rateLockedUntil = null,
+  rateLoading = false,
+  rateError = null,
+  currencyHistory = [],
 }) => {
   const resolvedStory = useMemo(
     () => story ?? deriveImpactStory(amount),
@@ -116,6 +162,21 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   const formattedAmount = useMemo(
     () => formatCurrency(amount, currency),
     [amount, currency],
+  );
+
+  const effectiveRate = lockedRate ?? xlmRate;
+  const isRateLocked = lockedRate !== null && lockedRate !== undefined;
+
+  const convertedAmount = useMemo(() => {
+    if (effectiveRate === null || effectiveRate === undefined) {
+      return null;
+    }
+    return formatXlmAmount(amount, effectiveRate);
+  }, [amount, effectiveRate]);
+
+  const historyForCurrency = useMemo(
+    () => currencyHistory.filter((snapshot) => snapshot.currency === currency),
+    [currencyHistory, currency],
   );
 
   return (
@@ -131,6 +192,45 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
         >
           {formattedAmount}
         </h2>
+        <p className="invoice-detail__currency">Currency: {currency}</p>
+
+        <div className="invoice-detail__conversion" aria-live="polite">
+          {rateLoading ? (
+            <span className="invoice-detail__status" role="status">
+              Loading exchange rate\u2026
+            </span>
+          ) : rateError ? (
+            <span
+              className="invoice-detail__status invoice-detail__status--error"
+              role="alert"
+            >
+              {rateError}
+            </span>
+          ) : convertedAmount ? (
+            <>
+              <span className="invoice-detail__converted-amount">
+                \u2248 {convertedAmount}
+              </span>
+              {effectiveRate !== null && effectiveRate !== undefined ? (
+                <span className="invoice-detail__rate">
+                  {formatRate(effectiveRate)}
+                </span>
+              ) : null}
+              {isRateLocked ? (
+                <span className="invoice-detail__rate-lock">
+                  Rate locked
+                  {rateLockedUntil
+                    ? ` until ${formatTimestamp(rateLockedUntil)}`
+                    : ''}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="invoice-detail__status">
+              XLM conversion unavailable
+            </span>
+          )}
+        </div>
       </header>
 
       {loading ? (
@@ -172,6 +272,39 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           </ul>
         </div>
       )}
+
+      <section
+        className="invoice-detail__history"
+        aria-labelledby={`invoice-detail-history-heading-${invoiceId}`}
+      >
+        <h3
+          id={`invoice-detail-history-heading-${invoiceId}`}
+          className="invoice-detail__history-heading"
+        >
+          Currency history
+        </h3>
+        {historyForCurrency.length === 0 ? (
+          <p className="invoice-detail__history-empty">
+            No rate history recorded for {currency} yet.
+          </p>
+        ) : (
+          <ul className="invoice-detail__history-list">
+            {historyForCurrency.map((snapshot) => (
+              <li
+                key={`${snapshot.currency}-${snapshot.capturedAt}`}
+                className="invoice-detail__history-item"
+              >
+                <span className="invoice-detail__history-rate">
+                  {formatRate(snapshot.rate)}
+                </span>
+                <span className="invoice-detail__history-time">
+                  {formatTimestamp(snapshot.capturedAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </section>
   );
 };
